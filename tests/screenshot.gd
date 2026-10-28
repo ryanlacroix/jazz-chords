@@ -60,6 +60,13 @@ func _run() -> void:
 func _practice(main: Node) -> void:
 	var p: ChordPractice = main._practice
 	main.show_tab(2)
+	# Opening the tab sounds the chord briefly without revealing it on the keys.
+	var sounding := func(): return Synth._players.filter(func(v): return v.playing).size()
+	var demo_ok: bool = sounding.call() == Theory.chord_notes(p.root, p.quality).size() \
+			and p._keyboard._lit.is_empty() and p._selected.is_empty()
+	await get_tree().create_timer(Synth.CUT_FADE_SEC + ChordPractice.DEMO_SECONDS + 0.1).timeout
+	demo_ok = demo_ok and sounding.call() == 0
+	print("practice demo chord plays for a second, keys unlit: ", "PASS" if demo_ok else "FAIL")
 	# Key filter: with only Bb enabled, every chord must be rooted on Bb.
 	var saved_keys := p.keys.duplicate()
 	p._set_keys([10])
@@ -113,6 +120,13 @@ func _practice(main: Node) -> void:
 func _midi(main: Node) -> void:
 	var p: ChordPractice = main._practice
 	main.show_tab(2)
+	# Opening the tab sounds the chord briefly without revealing it on the keys.
+	var sounding := func(): return Synth._players.filter(func(v): return v.playing).size()
+	var demo_ok: bool = sounding.call() == Theory.chord_notes(p.root, p.quality).size() \
+			and p._keyboard._lit.is_empty() and p._selected.is_empty()
+	await get_tree().create_timer(Synth.CUT_FADE_SEC + ChordPractice.DEMO_SECONDS + 0.1).timeout
+	demo_ok = demo_ok and sounding.call() == 0
+	print("practice demo chord plays for a second, keys unlit: ", "PASS" if demo_ok else "FAIL")
 	p.root = 2
 	p.quality = "m7"
 	p._present()

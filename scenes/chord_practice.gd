@@ -9,6 +9,7 @@ const STATS_PATH := "user://stats.cfg"
 const SECTION := "chord_practice"
 const DEFAULT_GROUPS := ["Triads", "Major", "Minor", "Dominant", "Diminished"]
 const NEXT_DELAY := 1.2
+const DEMO_SECONDS := 1.0
 
 var keys: Array = range(12)
 var groups: Array = DEFAULT_GROUPS.duplicate()
@@ -23,6 +24,8 @@ var _selected := {}
 var _revealed := false
 ## Bumped on every new chord so a pending "next chord" timer can tell it's stale.
 var _chord_id := 0
+## The new chord hasn't been sounded yet because the screen was hidden.
+var _demo_pending := false
 
 var _score: Label
 var _symbol: Button
@@ -88,23 +91,30 @@ func _init() -> void:
 	var settings := AppTheme.button("Settings")
 	settings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	settings.pressed.connect(func(): _settings.open())
+	var hear := AppTheme.button("Hear again")
+	hear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hear.pressed.connect(_play_demo)
 	_answer = AppTheme.button("Show answer")
 	_answer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_answer.pressed.connect(_on_answer_button)
 	actions.add_child(settings)
+	actions.add_child(hear)
 	actions.add_child(_answer)
 	main.add_child(actions)
 
 	_build_settings()
 	Midi.note_on.connect(_on_midi_note_on)
 	Midi.note_off.connect(_on_midi_note_off)
+	visibility_changed.connect(func():
+		if _demo_pending and is_visible_in_tree():
+			_play_demo())
 
 
 func _ready() -> void:
 	_load()
 	_sync_settings_ui()
 	_update_score()
-	_new_chord()
+	_new_chord(false)  # sounded once the tab is actually opened
 
 
 # --- Practice ---------------------------------------------------------------
@@ -119,7 +129,7 @@ func _pool() -> Array:
 	return out
 
 
-func _new_chord() -> void:
+func _new_chord(sound := true) -> void:
 	_chord_id += 1
 	var pool := _pool()
 	if pool.size() > 1:
@@ -128,6 +138,15 @@ func _new_chord() -> void:
 	root = pick[0]
 	quality = pick[1]
 	_present()
+	_demo_pending = true
+	if sound and is_visible_in_tree():
+		_play_demo()
+
+
+## Sounds the chord briefly without lighting any keys, so it isn't a giveaway.
+func _play_demo() -> void:
+	_demo_pending = false
+	Synth.play_chord(Theory.chord_notes(root, quality), false, DEMO_SECONDS)
 
 
 ## Resets the board for the current root and quality.

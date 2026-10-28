@@ -14,10 +14,13 @@ const NOTE_SECONDS := 1.8
 const TABLE_SIZE := 1024
 const VOICES := 12
 const PREWARM_RANGE := Vector2i(36, 84)
+const CUT_FADE_SEC := 0.06
 
 var _cache := {}
 var _players: Array[AudioStreamPlayer] = []
 var _next_player := 0
+## Fade-out tweens for notes cut short, by player, so a reused voice cancels it.
+var _fades := {}
 var _bright := PackedFloat32Array()
 var _mellow := PackedFloat32Array()
 var _sequence_id := 0
@@ -43,16 +46,21 @@ func _process(_delta: float) -> void:
 	_prewarm_note += 1
 
 
-func play_note(midi: int, volume_db := 0.0) -> void:
+func play_note(midi: int, volume_db := 0.0) -> AudioStreamPlayer:
 	var p := _players[_next_player]
 	_next_player = (_next_player + 1) % _players.size()
+	if _fades.has(p):
+		_fades[p].kill()
+		_fades.erase(p)
 	p.stream = _get_stream(midi)
 	p.volume_db = -6.0 + volume_db
 	p.play()
+	return p
 
 
-## Plays notes together, or rolled low to high when arpeggiate is set.
-func play_chord(notes: Array, arpeggiate := false) -> void:
+## Plays notes together, or rolled low to high when arpeggiate is set. A
+## duration above zero fades the block chord out after that many seconds.
+func play_chord(notes: Array, arpeggiate := false, duration := 0.0) -> void:
 	if arpeggiate:
 		play_sequence(notes, 0.22)
 		return
@@ -60,7 +68,20 @@ func play_chord(notes: Array, arpeggiate := false) -> void:
 	# Keep the sum of simultaneous notes from clipping.
 	var gain := -2.0 * maxf(0, notes.size() - 2)
 	for n in notes:
-		play_note(n, gain)
+		var p := play_note(n, gain)
+		if duration > 0.0:
+			_cut(p, duration)
+
+
+## Fades a voice out after delay seconds; a short fade avoids a click.
+func _cut(p: AudioStreamPlayer, delay: float) -> void:
+	var tw := create_tween()
+	tw.tween_interval(delay)
+	tw.tween_property(p, "volume_db", -60.0, CUT_FADE_SEC)
+	tw.tween_callback(func():
+		p.stop()
+		_fades.erase(p))
+	_fades[p] = tw
 
 
 ## Plays notes one after another, emitting sequence_step for each so the UI
