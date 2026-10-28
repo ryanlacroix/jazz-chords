@@ -13,6 +13,7 @@ func _init() -> void:
 	_test_tables()
 	_test_chord_pcs()
 	_test_root_names()
+	_test_identify_chord()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -167,3 +168,19 @@ func _test_root_names() -> void:
 					pcs.append(pc)
 			pcs.sort()
 			check_eq(pcs, Theory.chord_pcs(r, q), "%s%s spelled pitches" % [r, q])
+
+
+func _test_identify_chord() -> void:
+	check_eq(Theory.identify_chord([50, 53, 57, 60]), [root("D"), "m7"], "D F A C")
+	check_eq(Theory.identify_chord([57, 60, 64, 67]), [root("A"), "m7"], "A C E G (bass A)")
+	check_eq(Theory.identify_chord([60, 64, 67, 69]), [root("C"), "6"], "C E G A (bass C)")
+	check_eq(Theory.identify_chord([64, 67, 72]), [root("C"), "maj"], "first-inversion C")
+	check_eq(Theory.identify_chord([60, 61, 62]), [], "cluster is no chord")
+	check_eq(Theory.identify_chord([60, 64]), [], "two notes is no chord")
+	for r in 12:
+		for q in Theory.CHORDS:
+			var got := Theory.identify_chord(Theory.chord_notes(r, q))
+			check(not got.is_empty() and Theory.chord_pcs(got[0], got[1]) == Theory.chord_pcs(r, q), "identify %s%s" % [Theory.ROOTS[r], q])
+	check_eq(Theory.degree_for(root("D"), "m7", 60), "b7", "C in Dm7")
+	check_eq(Theory.degree_for(root("C"), "9", 62), "9", "D in C9")
+	check_eq(Theory.degree_for(root("C"), "maj", 61), "", "Db not in C")

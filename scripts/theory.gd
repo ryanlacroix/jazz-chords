@@ -292,6 +292,33 @@ static func chord_pcs(root_index: int, quality: String) -> Array[int]:
 	return out
 
 
+## Names the chord made by a set of MIDI notes (any octave or inversion):
+## [root_index, quality], or [] if no chord in CHORDS has exactly those
+## pitch classes. Ambiguous sets (Am7 = C6) prefer the bass note as root.
+static func identify_chord(notes: Array) -> Array:
+	var pcs: Array[int] = []
+	for m in notes:
+		if not pcs.has(m % 12):
+			pcs.append(m % 12)
+	if pcs.size() < 3:
+		return []
+	pcs.sort()
+	var bass: int = notes.min() % 12
+	for r in [bass] + range(12):
+		for q in CHORDS:
+			if chord_pcs(r, q) == pcs:
+				return [r, q]
+	return []
+
+
+## The chord degree a note plays in the chord ("b7", "9" ...), or "".
+static func degree_for(root_index: int, quality: String, midi: int) -> String:
+	for d in chord_degrees(quality):
+		if degree_semitones(d) % 12 == (midi - root_index) % 12:
+			return d
+	return ""
+
+
 ## Close-position chord tones, root at C3..B3.
 static func chord_notes(root_index: int, quality: String) -> Array[int]:
 	var base := VOICING_BASE + root_index

@@ -44,6 +44,7 @@ func _run() -> void:
 	main._scales._on_scale("altered")
 	await _shot("5_scales_eb_altered")
 	await _practice(main)
+	await _midi(main)
 	main.show_tab(3)
 	await _shot("6_ear_start")
 	main._ear._new_question()
@@ -106,6 +107,53 @@ func _practice(main: Node) -> void:
 	await _shot("6g_practice_explain_m7b5")
 	p._new_chord()
 	print("explanation hidden on next chord: ", "PASS" if not p._notation.visible else "FAIL")
+
+
+## MIDI notes as an MPK mini sends them: keys on channel 1, pads on channel 10.
+func _midi(main: Node) -> void:
+	var p: ChordPractice = main._practice
+	main.show_tab(2)
+	p.root = 2
+	p.quality = "m7"
+	p._present()
+	await _send_midi(36, true, 9)  # pad 1
+	print("pad ignored: ", "PASS" if p._selected.is_empty() and Midi.held_notes().is_empty() else "FAIL")
+	for m in [62, 65, 69]:  # D F A, an octave above the shown chord
+		await _send_midi(m, true)
+	await _shot("6h_practice_midi_partial")
+	await _send_midi(65, false)
+	print("released note drops out: ", "PASS" if not p._selected.has(65) else "FAIL")
+	await _send_midi(65, true)
+	await _send_midi(72, true)  # C -> Dm7
+	print("held Dm7 solves: ", "PASS" if not p._keyboard.input_enabled else "FAIL")
+	await _shot("6i_practice_midi_solved")
+	for m in [62, 65, 69, 72]:
+		await _send_midi(m, false)
+	await get_tree().create_timer(1.3).timeout
+	print("next chord starts empty: ", "PASS" if p._selected.is_empty() and p._keyboard.input_enabled else "FAIL")
+
+	main.show_tab(0)
+	for m in [45, 52, 55, 60]:  # A E G C: Am7 voiced as played
+		await _send_midi(m, true)
+	var c: ChordBuilder = main._chords
+	print("chords tab names held chord: ", c._symbol.text, " ", "PASS" if c.root == 9 and c.quality == "m7" else "FAIL")
+	await _shot("1b_chords_midi_am7")
+	for m in [45, 52, 55, 60]:
+		await _send_midi(m, false)
+	await _send_midi(100, true)  # above the keyboard: folds down to E5
+	print("high note folds into range: ", Midi.held_notes(), " (expect [76])")
+	await _send_midi(100, false)
+	main.show_tab(2)
+
+
+func _send_midi(pitch: int, on: bool, channel := 0) -> void:
+	var e := InputEventMIDI.new()
+	e.channel = channel
+	e.message = MIDI_MESSAGE_NOTE_ON if on else MIDI_MESSAGE_NOTE_OFF
+	e.pitch = pitch
+	e.velocity = 100 if on else 0
+	Input.parse_input_event(e)
+	await get_tree().process_frame  # parsed events are delivered on the next frame
 
 
 ## Presses two keys with two simultaneous touches, the way a phone would.

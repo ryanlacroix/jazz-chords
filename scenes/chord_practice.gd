@@ -2,7 +2,8 @@ class_name ChordPractice
 extends Control
 ## Chord practice: the app names a random chord, every key is labelled with
 ## its degree from that chord's root, and the user taps keys on/off until the
-## selected notes match the chord (any octave, any inversion).
+## selected notes match the chord (any octave, any inversion). On a MIDI
+## controller the held notes are the answer: releasing a key drops it again.
 
 const STATS_PATH := "user://stats.cfg"
 const SECTION := "chord_practice"
@@ -95,6 +96,8 @@ func _init() -> void:
 	main.add_child(actions)
 
 	_build_settings()
+	Midi.note_on.connect(_on_midi_note_on)
+	Midi.note_off.connect(_on_midi_note_off)
 
 
 func _ready() -> void:
@@ -137,7 +140,7 @@ func _present() -> void:
 	_keyboard.center_on(Theory.chord_notes(root, quality))
 	_symbol.text = Theory.chord_symbol(root, quality)
 	_notation.visible = false
-	_set_status("Tap the keys", AppTheme.TEXT)
+	_set_status("Tap or play the keys" if Midi.devices else "Tap the keys", AppTheme.TEXT)
 	_answer.text = "Show answer"
 
 
@@ -145,14 +148,35 @@ func _on_key(midi: int) -> void:
 	if _revealed:
 		Synth.play_note(midi)
 		return
+	_select(midi, not _selected.has(midi))
 	if _selected.has(midi):
+		Synth.play_note(midi)
+	_check()
+
+
+## The Midi autoload has already sounded these notes.
+func _on_midi_note_on(midi: int, _velocity: int) -> void:
+	if _accepts_midi():
+		_select(midi, true)
+		_check()
+
+
+func _on_midi_note_off(midi: int) -> void:
+	if _accepts_midi():
+		_select(midi, false)
+
+
+func _accepts_midi() -> bool:
+	return is_visible_in_tree() and not _revealed and _keyboard.input_enabled
+
+
+func _select(midi: int, on: bool) -> void:
+	if on:
+		_selected[midi] = true
+		_keyboard.highlight([midi], [Theory.OFFSET_LABELS[(midi - root) % 12]], AppTheme.ACCENT)
+	else:
 		_selected.erase(midi)
 		_keyboard.unhighlight([midi])
-	else:
-		_selected[midi] = true
-		Synth.play_note(midi)
-		_keyboard.highlight([midi], [Theory.OFFSET_LABELS[(midi - root) % 12]], AppTheme.ACCENT)
-	_check()
 
 
 func _selected_pcs() -> Array[int]:

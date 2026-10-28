@@ -1,7 +1,8 @@
 class_name ChordBuilder
 extends VBoxContainer
 ## Pick a root and a quality; see the chord on the keyboard with its interval
-## labels, choose a voicing, and hear it.
+## labels, choose a voicing, and hear it. Holding a chord on a MIDI
+## controller names it and shows the notes as played.
 
 var root := 0
 var quality := "maj7"
@@ -79,6 +80,7 @@ func _init() -> void:
 	add_child(actions)
 
 	Synth.sequence_step.connect(func(_i, midi): if is_visible_in_tree(): _keyboard.flash(midi))
+	Midi.notes_changed.connect(_on_midi_notes)
 
 
 func _ready() -> void:
@@ -96,6 +98,27 @@ func show_chord(root_index: int, q: String) -> void:
 	_refresh()
 
 
+## Shows a chord played on a MIDI controller in the user's own voicing.
+func show_played(notes: Array, root_index: int, q: String) -> void:
+	root = root_index
+	quality = q
+	_roots.select(root)
+	_qualities.select(q)
+	_qualities.reveal_selected()
+	for b in _voicing_buttons:
+		b.set_pressed_no_signal(false)
+	_display(notes, notes.map(func(m): return Theory.degree_for(root, quality, m)), "As played")
+
+
+func _on_midi_notes() -> void:
+	if not is_visible_in_tree():
+		return
+	var held := Midi.held_notes()
+	var found := Theory.identify_chord(held)
+	if not found.is_empty():
+		show_played(held, found[0], found[1])
+
+
 func _toggle_notation() -> void:
 	_notation.visible = not _notation.visible
 	_hint.visible = not _notation.visible
@@ -110,14 +133,19 @@ func _refresh() -> void:
 		_voicing_buttons[i].set_pressed_no_signal(i == voicing)
 
 	var voiced := Theory.voice_chord(root, quality, voicing)
-	_notes = voiced.notes
-	var degrees: Array = voiced.degrees
+	_display(voiced.notes, voiced.degrees, "%s voicing" % Theory.voicing_name(voicing))
+
+
+## Header, labels and keyboard for the current root and quality voiced as
+## `notes`, where degrees[i] is the chord degree of notes[i].
+func _display(notes: Array, degrees: Array, voicing_text: String) -> void:
+	_notes = notes
 	var names := Theory.spell_degrees(root, degrees, Theory.chord_root_name(root, quality))
 	var labels := degrees.map(Theory.degree_display)
 
 	_symbol.text = Theory.chord_symbol(root, quality)
 	_notation.show_chord(quality)
-	_name.text = "%s  ·  %s voicing" % [Theory.CHORDS[quality].name, Theory.voicing_name(voicing)]
+	_name.text = "%s  ·  %s" % [Theory.CHORDS[quality].name, voicing_text]
 	_spelling.text = "  ".join(names)
 	_formula.text = "  ".join(Theory.chord_degrees(quality).map(Theory.degree_display))
 

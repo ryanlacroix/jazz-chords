@@ -1,6 +1,7 @@
 extends Control
 ## App shell: screen host, bottom tab bar, safe-area padding, and the
-## "tap to start" and "rotate your phone" overlays.
+## "tap to start" and "rotate your phone" overlays, and a toast when a MIDI
+## controller connects or disconnects.
 
 const TAB_NAMES := ["Chords", "Scales", "Practice", "Ear"]
 const SIDE_MARGIN := 36
@@ -14,6 +15,8 @@ var _scales: ScaleExplorer
 var _practice: ChordPractice
 var _ear: EarTrainer
 var _rotate_overlay: Control
+var _toast: Label
+var _toast_tween: Tween
 
 
 func _ready() -> void:
@@ -58,6 +61,8 @@ func _ready() -> void:
 	_add_start_overlay()
 	_rotate_overlay = _overlay("Rotate your phone to portrait")
 	add_child(_rotate_overlay)
+	_add_toast()
+	Midi.devices_changed.connect(_on_midi_devices)
 
 	get_viewport().size_changed.connect(_on_resized)
 	_on_resized()
@@ -104,8 +109,36 @@ func _add_start_overlay() -> void:
 	o.gui_input.connect(func(e: InputEvent):
 		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed:
 			Synth.play_note(72, -30.0)
+			if Midi.devices.is_empty():
+				Midi.reconnect()  # some browsers only grant MIDI after a gesture
 			o.queue_free())
 	add_child(o)
+
+
+func _add_toast() -> void:
+	_toast = AppTheme.label("", AppTheme.FONT_SMALL)
+	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_toast.add_theme_stylebox_override("normal", AppTheme._box(AppTheme.BUTTON, 24, 24))
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_toast.custom_minimum_size.x = 900
+	_toast.offset_left = -450
+	_toast.offset_right = 450
+	_toast.offset_top = 60
+	_toast.modulate.a = 0.0
+	add_child(_toast)
+
+
+func _on_midi_devices(names: PackedStringArray) -> void:
+	_toast.text = "MIDI: " + ", ".join(names) if names else "MIDI disconnected"
+	if _toast_tween:
+		_toast_tween.kill()
+	_toast_tween = create_tween()
+	_toast_tween.tween_property(_toast, "modulate:a", 1.0, 0.2)
+	_toast_tween.tween_interval(2.5)
+	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.4)
 
 
 func _overlay(text: String) -> Control:

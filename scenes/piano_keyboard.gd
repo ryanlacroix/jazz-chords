@@ -6,6 +6,9 @@ extends Control
 ##
 ## A ScrollContainer isn't used because its drag-to-scroll would fight with
 ## pressing keys on a touchscreen.
+##
+## Notes held on a MIDI controller (the Midi autoload) are drawn pressed too,
+## and the view slides to keep them in sight.
 
 signal key_pressed(midi: int)
 signal view_changed
@@ -17,6 +20,7 @@ const BLACK_COLOR := Color("22252c")
 
 @export var visible_whites := 14
 @export var play_on_press := true
+@export var follow_midi := true
 var input_enabled := true
 
 var view_offset := 0.0:
@@ -36,6 +40,7 @@ var _lit := {}
 var _whites: Array[int] = []
 var _white_index := {}
 var _tween: Tween
+var _tween_target := 0.0
 
 
 func _init() -> void:
@@ -50,6 +55,8 @@ func _init() -> void:
 func _ready() -> void:
 	view_offset = _white_of(60) - 3.5  # start around C4
 	set_process(false)
+	Midi.note_on.connect(_on_midi_note_on)
+	Midi.note_off.connect(func(_m): queue_redraw())
 
 
 # --- Public API -------------------------------------------------------------
@@ -175,8 +182,16 @@ func _note_at(pos: Vector2) -> int:
 	return white
 
 
+## Judged against where the view is sliding to, if it's moving.
+func _in_view(midi: int) -> bool:
+	var offset := _tween_target if _tween and _tween.is_running() else view_offset
+	var x := _white_of(midi)
+	return x >= offset and x + 1.0 <= offset + visible_whites
+
+
 func _slide_to(target: float) -> void:
 	target = clampf(target, 0.0, _max_offset())
+	_tween_target = target
 	if _tween:
 		_tween.kill()
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -212,6 +227,12 @@ func _touch(index: int, pos: Vector2, pressed: bool) -> void:
 	queue_redraw()
 
 
+func _on_midi_note_on(midi: int, _velocity: int) -> void:
+	if follow_midi and is_visible_in_tree() and not _in_view(midi):
+		center_on(Midi.held_notes())
+	queue_redraw()
+
+
 func _process(delta: float) -> void:
 	for m in _lit.keys():
 		_lit[m] -= delta
@@ -229,7 +250,7 @@ func _draw() -> void:
 	var w := _white_w()
 	var label_size := int(clampf(w * 0.5, 26, 48))
 	var sub_size := int(label_size * 0.78)
-	var held := _held.values()
+	var held := _held.values() + Midi.held_notes()
 	draw_rect(Rect2(Vector2.ZERO, size), AppTheme.BG)
 
 	for m in _whites:
