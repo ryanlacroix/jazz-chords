@@ -3,9 +3,9 @@ extends Node
 ## keyboards (via note_on/note_off) and sound through Synth.
 ##
 ## The default mapping suits an Akai MPK mini: its 25 keys send channel 1
-## notes from C3 and pass straight through, while its drum pads (channel 10)
-## and knobs (CC messages) are ignored. Notes outside the on-screen range are
-## folded by octaves into it.
+## notes from C3 and pass straight through, its drum pads (channel 10) emit
+## pad_pressed instead of sounding, and its knobs (CC messages) are ignored.
+## Notes outside the on-screen range are folded by octaves into it.
 ##
 ## Godot's Web MIDI driver lists the inputs only once, when it opens, so on the
 ## web a separate MIDIAccess watches for plugging and unplugging and reopens.
@@ -14,9 +14,15 @@ signal note_on(midi: int, velocity: int)
 signal note_off(midi: int)
 signal notes_changed
 signal devices_changed(names: PackedStringArray)
+## A drum pad was struck; note is its raw note number (see PAD_* below).
+signal pad_pressed(note: int)
 
 ## Zero-based; channel 10 is where drum pads conventionally sit.
-const IGNORED_CHANNELS := [9]
+const PAD_CHANNEL := 9
+## MPK mini bottom-row pads, left to right, in their default bank A.
+const PAD_BOTTOM_1 := 36
+const PAD_BOTTOM_2 := 37
+const PAD_BOTTOM_3 := 38
 const LOW := 36  # PianoKeyboard.LOW
 const HIGH := 84  # PianoKeyboard.HIGH
 
@@ -81,7 +87,11 @@ func is_held(midi: int) -> bool:
 
 
 func _input(event: InputEvent) -> void:
-	if not event is InputEventMIDI or IGNORED_CHANNELS.has(event.channel):
+	if not event is InputEventMIDI:
+		return
+	if event.channel == PAD_CHANNEL:
+		if event.message == MIDI_MESSAGE_NOTE_ON and event.velocity > 0:
+			pad_pressed.emit(event.pitch)
 		return
 	var m := _fold(event.pitch)
 	if event.message == MIDI_MESSAGE_NOTE_ON and event.velocity > 0:

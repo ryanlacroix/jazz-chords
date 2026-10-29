@@ -8,7 +8,6 @@ extends Control
 const STATS_PATH := "user://stats.cfg"
 const SECTION := "chord_practice"
 const DEFAULT_GROUPS := ["Triads", "Major", "Minor", "Dominant", "Diminished"]
-const NEXT_DELAY := 1.2
 const DEMO_SECONDS := 1.0
 
 var keys: Array = range(12)
@@ -22,8 +21,6 @@ var best_streak := 0
 ## midi -> true for keys the user has turned on.
 var _selected := {}
 var _revealed := false
-## Bumped on every new chord so a pending "next chord" timer can tell it's stale.
-var _chord_id := 0
 ## The new chord hasn't been sounded yet because the screen was hidden.
 var _demo_pending := false
 
@@ -52,9 +49,7 @@ func _init() -> void:
 	var prompt := AppTheme.label("Play this chord", AppTheme.FONT_BODY, AppTheme.TEXT_DIM)
 	# The chord name is a flat button: tapping it explains the notation.
 	_symbol = NotationCard.make_symbol_button(int(AppTheme.FONT_HUGE * 1.4))
-	_symbol.pressed.connect(func():
-		_notation.show_chord(quality)
-		_notation.visible = not _notation.visible)
+	_symbol.pressed.connect(_toggle_notation)
 	var hint := AppTheme.label("Tap the chord name to explain it", AppTheme.FONT_SMALL, AppTheme.TEXT_DIM)
 	_status = AppTheme.label("", AppTheme.FONT_BODY)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -105,6 +100,7 @@ func _init() -> void:
 	_build_settings()
 	Midi.note_on.connect(_on_midi_note_on)
 	Midi.note_off.connect(_on_midi_note_off)
+	Midi.pad_pressed.connect(_on_midi_pad)
 	visibility_changed.connect(func():
 		if _demo_pending and is_visible_in_tree():
 			_play_demo())
@@ -130,7 +126,6 @@ func _pool() -> Array:
 
 
 func _new_chord(sound := true) -> void:
-	_chord_id += 1
 	var pool := _pool()
 	if pool.size() > 1:
 		pool.erase([root, quality])  # never the same chord twice in a row
@@ -185,6 +180,25 @@ func _on_midi_note_off(midi: int) -> void:
 		_select(midi, false)
 
 
+func _toggle_notation() -> void:
+	_notation.show_chord(quality)
+	_notation.visible = not _notation.visible
+
+
+## The first three bottom-row pads double as "Hear again", the chord symbol
+## and the answer button.
+func _on_midi_pad(note: int) -> void:
+	if not is_visible_in_tree():
+		return
+	match note:
+		Midi.PAD_BOTTOM_1:
+			_play_demo()
+		Midi.PAD_BOTTOM_2:
+			_toggle_notation()
+		Midi.PAD_BOTTOM_3:
+			_on_answer_button()
+
+
 func _accepts_midi() -> bool:
 	return is_visible_in_tree() and not _revealed and _keyboard.input_enabled
 
@@ -222,10 +236,7 @@ func _check() -> void:
 	_keyboard.highlight(notes, notes.map(func(m): return Theory.OFFSET_LABELS[(m - root) % 12]), AppTheme.GOOD)
 	Synth.play_chord(notes)
 	_keyboard.input_enabled = false
-	var id := _chord_id
-	get_tree().create_timer(NEXT_DELAY).timeout.connect(func():
-		if id == _chord_id:
-			_new_chord())
+	_answer.text = "Next"
 
 
 func _clear_selection() -> void:
