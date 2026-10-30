@@ -10,6 +10,12 @@ const SECTION := "chord_practice"
 const DEFAULT_GROUPS := ["Triads", "Major", "Minor", "Dominant", "Diminished"]
 const DEMO_SECONDS := 1.0
 
+## Random: any chord from the pool. Full Keys: every enabled chord type on one
+## root, shuffled, then another root. Diatonic: the seven 7th chords of one
+## major key, shuffled, then another key.
+enum Order { RANDOM, FULL_KEYS, DIATONIC }
+const ORDER_NAMES := ["Random", "Full Keys", "Diatonic Chords"]
+
 var keys: Array = range(12)
 var groups: Array = DEFAULT_GROUPS.duplicate()
 var root := 0
@@ -17,6 +23,13 @@ var quality := "maj7"
 var solved := 0
 var streak := 0
 var best_streak := 0
+var order := Order.RANDOM
+
+## Chords still to come in the current key, as [root, quality]; the last is next.
+var _queue: Array = []
+## Root (Full Keys) or tonic (Diatonic) of the key being worked through.
+var _key := -1
+var _order_at_open := Order.RANDOM
 
 ## midi -> true for keys the user has turned on.
 var _selected := {}
@@ -25,6 +38,7 @@ var _revealed := false
 var _demo_pending := false
 
 var _score: Label
+var _prompt: Label
 var _symbol: Button
 var _notation: NotationCard
 var _status: Label
@@ -33,6 +47,7 @@ var _answer: Button
 var _settings: BottomSheet
 var _key_toggles: Array[Button] = []
 var _group_toggles := {}
+var _order_toggles: Array[Button] = []
 
 
 func _init() -> void:
@@ -46,16 +61,16 @@ func _init() -> void:
 	vbox.add_theme_constant_override("separation", 8)
 	header.add_child(vbox)
 	_score = AppTheme.label("", AppTheme.FONT_SMALL, AppTheme.TEXT_DIM)
-	var prompt := AppTheme.label("Play this chord", AppTheme.FONT_BODY, AppTheme.TEXT_DIM)
+	_prompt = AppTheme.label("Play this chord", AppTheme.FONT_BODY, AppTheme.TEXT_DIM)
 	# The chord name is a flat button: tapping it explains the notation.
 	_symbol = NotationCard.make_symbol_button(int(AppTheme.FONT_HUGE * 1.4))
 	_symbol.pressed.connect(_toggle_notation)
 	var hint := AppTheme.label("Tap the chord name to explain it", AppTheme.FONT_SMALL, AppTheme.TEXT_DIM)
 	_status = AppTheme.label("", AppTheme.FONT_BODY)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	for l in [_score, prompt, hint, _status]:
+	for l in [_score, _prompt, hint, _status]:
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	for c in [_score, prompt, _symbol, hint, _status]:
+	for c in [_score, _prompt, _symbol, hint, _status]:
 		vbox.add_child(c)
 	main.add_child(header)
 
@@ -85,7 +100,9 @@ func _init() -> void:
 	actions.add_theme_constant_override("separation", AppTheme.GAP)
 	var settings := AppTheme.button("Settings")
 	settings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	settings.pressed.connect(func(): _settings.open())
+	settings.pressed.connect(func():
+		_order_at_open = order
+		_settings.open())
 	var hear := AppTheme.button("Hear again")
 	hear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hear.pressed.connect(_play_demo)
@@ -126,16 +143,37 @@ func _pool() -> Array:
 
 
 func _new_chord(sound := true) -> void:
-	var pool := _pool()
-	if pool.size() > 1:
-		pool.erase([root, quality])  # never the same chord twice in a row
-	var pick: Array = pool.pick_random()
+	var pick: Array
+	if order == Order.RANDOM:
+		var pool := _pool()
+		if pool.size() > 1:
+			pool.erase([root, quality])  # never the same chord twice in a row
+		pick = pool.pick_random()
+	else:
+		if _queue.is_empty():
+			_refill_queue()
+		pick = _queue.pop_back()
 	root = pick[0]
 	quality = pick[1]
 	_present()
 	_demo_pending = true
 	if sound and is_visible_in_tree():
 		_play_demo()
+
+
+## Moves on to a new random key and queues its chords in shuffled order.
+func _refill_queue() -> void:
+	var choices := keys.duplicate()
+	if choices.size() > 1:
+		choices.erase(_key)
+	_key = choices.pick_random()
+	if order == Order.DIATONIC:
+		_queue = Theory.diatonic_chords(_key)
+	else:
+		_queue = _pool().filter(func(c): return c[0] == _key)
+	_queue.shuffle()
+	if _queue.size() > 1 and _queue[-1] == [root, quality]:
+		_queue.reverse()  # never the same chord twice in a row
 
 
 ## Sounds the chord briefly without lighting any keys, so it isn't a giveaway.
@@ -153,6 +191,9 @@ func _present() -> void:
 	_keyboard.set_degree_labels(root)
 	_keyboard.center_on(Theory.chord_notes(root, quality))
 	_symbol.text = Theory.chord_symbol(root, quality)
+	_prompt.text = "Play this chord"
+	if order == Order.DIATONIC:
+		_prompt.text += "  ·  Key of " + Theory.ROOTS[_key]
 	_notation.visible = false
 	_set_status("Tap or play the keys" if Midi.devices else "Tap the keys", AppTheme.TEXT)
 	_answer.text = "Show answer"
@@ -282,6 +323,18 @@ func _build_settings() -> void:
 	add_child(_settings)
 	var box := _settings.content
 
+	box.add_child(AppTheme.label("Chord order", AppTheme.FONT_SMALL, AppTheme.TEXT_DIM))
+	var order_row := HBoxContainer.new()
+	order_row.add_theme_constant_override("separation", AppTheme.GAP)
+	for o in ORDER_NAMES.size():
+		var b := AppTheme.button(ORDER_NAMES[o], true)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", AppTheme.FONT_SMALL)
+		b.pressed.connect(_on_order.bind(o))
+		order_row.add_child(b)
+		_order_toggles.append(b)
+	box.add_child(order_row)
+
 	box.add_child(AppTheme.label("Keys", AppTheme.FONT_SMALL, AppTheme.TEXT_DIM))
 	var key_grid := BottomSheet.toggle_grid(6)
 	for i in Theory.ROOTS.size():
@@ -324,8 +377,15 @@ func _build_settings() -> void:
 	box.add_child(done)
 
 
+func _on_order(o: int) -> void:
+	order = o as Order
+	_queue.clear()
+	_sync_settings_ui()
+
+
 func _set_keys(new_keys: Array) -> void:
 	keys = new_keys.duplicate()
+	_queue.clear()
 	_sync_settings_ui()
 
 
@@ -338,6 +398,7 @@ func _on_key_toggled(on: bool, index: int) -> void:
 			return
 		keys.erase(index)
 	keys.sort()
+	_queue.clear()
 
 
 func _on_group_toggled(on: bool, group: String) -> void:
@@ -348,6 +409,7 @@ func _on_group_toggled(on: bool, group: String) -> void:
 			_group_toggles[group].set_pressed_no_signal(true)  # keep at least one
 			return
 		groups.erase(group)
+	_queue.clear()
 
 
 func _sync_settings_ui() -> void:
@@ -355,11 +417,15 @@ func _sync_settings_ui() -> void:
 		_key_toggles[i].set_pressed_no_signal(keys.has(i))
 	for g in _group_toggles:
 		_group_toggles[g].set_pressed_no_signal(groups.has(g))
+	for i in _order_toggles.size():
+		_order_toggles[i].set_pressed_no_signal(i == order)
 
 
 func _on_settings_closed() -> void:
 	_save()
-	if not keys.has(root) or not groups.has(Theory.CHORDS[quality].group):
+	var still_valid := keys.has(_key) if order == Order.DIATONIC \
+		else keys.has(root) and groups.has(Theory.CHORDS[quality].group)
+	if order != _order_at_open or not still_valid:
 		_new_chord()
 
 
@@ -387,6 +453,7 @@ func _load() -> void:
 	saved_groups = saved_groups.filter(func(g): return all_groups.has(g))
 	if not saved_groups.is_empty():
 		groups = saved_groups
+	order = clampi(cfg.get_value(SECTION, "order", Order.RANDOM), 0, ORDER_NAMES.size() - 1) as Order
 
 
 func _save() -> void:
@@ -396,4 +463,5 @@ func _save() -> void:
 	cfg.set_value(SECTION, "best_streak", best_streak)
 	cfg.set_value(SECTION, "keys", keys)
 	cfg.set_value(SECTION, "groups", groups)
+	cfg.set_value(SECTION, "order", order)
 	cfg.save(STATS_PATH)

@@ -150,6 +150,9 @@ const INTERVALS := [
 ## Degree names for each semitone above a root, used to label keys in practice.
 const OFFSET_LABELS := ["R", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"]
 
+## The seven 7th chords of a major key: [semitones above the tonic, quality].
+const DIATONIC_7THS := [[0, "maj7"], [2, "m7"], [4, "m7"], [5, "maj7"], [7, "7"], [9, "m7"], [11, "m7b5"]]
+
 enum Voicing { ROOT, SHELL, ROOTLESS_A, ROOTLESS_B }
 
 ## Bottom of the "left hand" register used for chord voicings (C3).
@@ -438,6 +441,11 @@ static func scales_for_chord(quality: String) -> Array:
 		if SCALES[s].fits.has(quality):
 			out.append(s)
 	return out
+
+
+## [root, quality] for each diatonic 7th chord of the major key on `key`.
+static func diatonic_chords(key: int) -> Array:
+	return DIATONIC_7THS.map(func(c): return [(key + c[0]) % 12, c[1]])
 
 
 ## Unique group names in display order.

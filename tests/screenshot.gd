@@ -114,6 +114,34 @@ func _practice(main: Node) -> void:
 	await _shot("6g_practice_explain_m7b5")
 	p._new_chord()
 	print("explanation hidden on next chord: ", "PASS" if not p._notation.visible else "FAIL")
+	await _test_chord_order(p)
+
+
+## Full Keys and Diatonic work through one whole key before changing key.
+func _test_chord_order(p: ChordPractice) -> void:
+	for o in [ChordPractice.Order.FULL_KEYS, ChordPractice.Order.DIATONIC]:
+		p._on_order(o)
+		p._new_chord(false)
+		var key := p._key
+		var want: Array = Theory.diatonic_chords(key) if o == ChordPractice.Order.DIATONIC \
+			else p._pool().filter(func(c): return c[0] == key)
+		var seen := [[p.root, p.quality]]
+		for i in want.size() - 1:
+			p._new_chord(false)
+			seen.append([p.root, p.quality])
+		var covered := want.all(func(c): return seen.has(c)) and seen.size() == want.size()
+		p._new_chord(false)
+		var moved := p.keys.size() == 1 or p._key != key
+		print("%s covers one key, then changes key: " % ChordPractice.ORDER_NAMES[o], "PASS" if covered and moved else "FAIL")
+	p._settings.open()
+	await get_tree().create_timer(0.4).timeout
+	await _shot("6j_practice_settings_diatonic")
+	p._settings.close()
+	p._on_order(ChordPractice.Order.RANDOM)
+	p._save()
+	# Let the demo from closing the sheet finish so later voice counts are clean.
+	await get_tree().create_timer(Synth.CUT_FADE_SEC + ChordPractice.DEMO_SECONDS + 0.1).timeout
+	p._new_chord()
 
 
 ## MIDI notes as an MPK mini sends them: keys on channel 1, pads on channel 10.

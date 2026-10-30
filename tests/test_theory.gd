@@ -14,6 +14,7 @@ func _init() -> void:
 	_test_chord_pcs()
 	_test_root_names()
 	_test_identify_chord()
+	_test_diatonic()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -184,3 +185,11 @@ func _test_identify_chord() -> void:
 	check_eq(Theory.degree_for(root("D"), "m7", 60), "b7", "C in Dm7")
 	check_eq(Theory.degree_for(root("C"), "9", 62), "9", "D in C9")
 	check_eq(Theory.degree_for(root("C"), "maj", 61), "", "Db not in C")
+
+
+func _test_diatonic() -> void:
+	var symbols := Theory.diatonic_chords(root("C")).map(func(c): return Theory.chord_symbol(c[0], c[1]))
+	check_eq(symbols, ["Cmaj7", "Dm7", "Em7", "Fmaj7", "G7", "Am7", "Bm7b5"], "C diatonic 7ths")
+	check_eq(Theory.diatonic_chords(root("Eb"))[6], [root("D"), "m7b5"], "Eb vii wraps around")
+	for c in Theory.DIATONIC_7THS:
+		check(Theory.CHORDS.has(c[1]), "diatonic quality %s exists" % c[1])
