@@ -15,6 +15,7 @@ func _init() -> void:
 	_test_root_names()
 	_test_identify_chord()
 	_test_diatonic()
+	_test_standards()
 	print("%d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -193,3 +194,19 @@ func _test_diatonic() -> void:
 	check_eq(Theory.diatonic_chords(root("Eb"))[6], [root("D"), "m7b5"], "Eb vii wraps around")
 	for c in Theory.DIATONIC_7THS:
 		check(Theory.CHORDS.has(c[1]), "diatonic quality %s exists" % c[1])
+
+
+func _test_standards() -> void:
+	check_eq(Theory.parse_chord_symbol("Bb7"), {"root": 10, "name": "Bb", "quality": "7"}, "parse Bb7")
+	check_eq(Theory.parse_chord_symbol("C#m7"), {"root": 1, "name": "C#", "quality": "m7"}, "parse C#m7")
+	check_eq(Theory.parse_chord_symbol("Gbmaj7"), {"root": 6, "name": "Gb", "quality": "maj7"}, "parse Gbmaj7")
+	check_eq(Theory.parse_chord_symbol("Ebm7b5"), {"root": 3, "name": "Eb", "quality": "m7b5"}, "parse Ebm7b5")
+	check_eq(Theory.parse_chord_symbol("B7"), {"root": 11, "name": "B", "quality": "7"}, "parse B7")
+	check(Standards.ROSTER.size() > 0, "standards roster not empty")
+	for i in Standards.ROSTER.size():
+		var name: String = Standards.ROSTER[i].name
+		var chords := Standards.chords(i)
+		check(not name.is_empty() and chords.size() >= 4, "standard %d has a name and chords" % i)
+		for c in chords:
+			check(Theory.CHORDS.has(c.quality), "%s: unknown quality %s" % [name, c.quality])
+			check(c.root >= 0 and c.root < 12, "%s: root out of range" % name)

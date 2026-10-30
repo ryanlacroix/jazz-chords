@@ -264,6 +264,15 @@ static func chord_symbol(root_index: int, quality: String) -> String:
 	return chord_root_name(root_index, quality) + quality
 
 
+## Splits a written symbol into root and quality: "Bbm7" ->
+## {root = 10, name = "Bb", quality = "m7"}. No quality starts with b or #.
+static func parse_chord_symbol(symbol: String) -> Dictionary:
+	var name := symbol.substr(0, 2 if symbol.length() > 1 and symbol[1] in ["b", "#"] else 1)
+	var acc: int = parse_degree(name.substr(1) + "1").acc
+	var root_pc: int = (LETTER_PCS[LETTERS.find(name[0])] + acc + 12) % 12
+	return {"root": root_pc, "name": name, "quality": symbol.substr(name.length())}
+
+
 static func chord_root_name(root_index: int, quality: String) -> String:
 	return best_root_name(root_index, chord_degrees(quality))
 

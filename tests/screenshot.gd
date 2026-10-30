@@ -67,7 +67,8 @@ func _practice(main: Node) -> void:
 	await get_tree().create_timer(Synth.CUT_FADE_SEC + ChordPractice.DEMO_SECONDS + 0.1).timeout
 	demo_ok = demo_ok and sounding.call() == 0
 	print("practice demo chord plays for a second, keys unlit: ", "PASS" if demo_ok else "FAIL")
-	# Key filter: with only Bb enabled, every chord must be rooted on Bb.
+	# Key filter: with only Bb enabled, every Random chord must be rooted on Bb.
+	p._on_order(ChordPractice.Order.RANDOM)
 	var saved_keys := p.keys.duplicate()
 	p._set_keys([10])
 	var ok := true
@@ -133,11 +134,37 @@ func _test_chord_order(p: ChordPractice) -> void:
 		p._new_chord(false)
 		var moved := p.keys.size() == 1 or p._key != key
 		print("%s covers one key, then changes key: " % ChordPractice.ORDER_NAMES[o], "PASS" if covered and moved else "FAIL")
+	p._on_order(ChordPractice.Order.JAZZ)
+	p._new_chord(false)
+	var first := p._standard
+	var chords := Standards.chords(first)
+	var titled: bool = p._prompt.text == Standards.ROSTER[first].name and p._prev_standard.visible
+	p._new_chord(false)
+	var stepped: bool = p._standard == first and p._symbol.text == chords[1].name + chords[1].quality
+	for i in chords.size() - 1:
+		p._new_chord(false)
+	var looped := p._standard == first and p._standard_pos == 0
+	print("Jazz titles, steps and loops one standard: ", "PASS" if titled and stepped and looped else "FAIL")
+	# Start on the longest title to check it fits between the arrows.
+	var longest := 0
+	for i in Standards.ROSTER.size():
+		if Standards.ROSTER[i].name.length() > Standards.ROSTER[longest].name.length():
+			longest = i
+	p._standard = longest
+	p._switch_standard(-1)
+	p._switch_standard(1)
+	var switched: bool = p._standard == longest and p._standard_pos == 0 \
+		and p._prompt.text == Standards.ROSTER[longest].name
+	print("Jazz arrows switch standard from the top: ", "PASS" if switched else "FAIL")
+	await get_tree().create_timer(0.3).timeout
+	await _shot("6k_practice_jazz")
 	p._settings.open()
 	await get_tree().create_timer(0.4).timeout
-	await _shot("6j_practice_settings_diatonic")
+	await _shot("6j_practice_settings_jazz")
 	p._settings.close()
 	p._on_order(ChordPractice.Order.RANDOM)
+	p._present()
+	print("arrows hidden outside Jazz: ", "PASS" if not p._next_standard.visible else "FAIL")
 	p._save()
 	# Let the demo from closing the sheet finish so later voice counts are clean.
 	await get_tree().create_timer(Synth.CUT_FADE_SEC + ChordPractice.DEMO_SECONDS + 0.1).timeout

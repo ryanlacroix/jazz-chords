@@ -12,9 +12,10 @@ const DEMO_SECONDS := 1.0
 
 ## Random: any chord from the pool. Full Keys: every enabled chord type on one
 ## root, shuffled, then another root. Diatonic: the seven 7th chords of one
-## major key, shuffled, then another key.
-enum Order { RANDOM, FULL_KEYS, DIATONIC }
-const ORDER_NAMES := ["Random", "Full Keys", "Diatonic Chords"]
+## major key, shuffled, then another key. Jazz: a standard's progression in
+## order, looping; the arrows beside its title switch standards.
+enum Order { RANDOM, FULL_KEYS, DIATONIC, JAZZ }
+const ORDER_NAMES := ["Random", "Full Keys", "Diatonic Chords", "Jazz"]
 
 var keys: Array = range(12)
 var groups: Array = DEFAULT_GROUPS.duplicate()
@@ -30,6 +31,11 @@ var _queue: Array = []
 ## Root (Full Keys) or tonic (Diatonic) of the key being worked through.
 var _key := -1
 var _order_at_open := Order.RANDOM
+## Index into Standards.ROSTER (-1 until Jazz picks one) and the current chord.
+var _standard := -1
+var _standard_pos := 0
+## The root as the chart writes it (Jazz only); empty means the usual spelling.
+var _root_name := ""
 
 ## midi -> true for keys the user has turned on.
 var _selected := {}
@@ -39,6 +45,8 @@ var _demo_pending := false
 
 var _score: Label
 var _prompt: Label
+var _prev_standard: Button
+var _next_standard: Button
 var _symbol: Button
 var _notation: NotationCard
 var _status: Label
@@ -70,7 +78,21 @@ func _init() -> void:
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	for l in [_score, _prompt, hint, _status]:
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	for c in [_score, _prompt, _symbol, hint, _status]:
+	_prompt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_prompt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# In Jazz the prompt names the standard, with arrows to switch it.
+	var prompt_row := HBoxContainer.new()
+	prompt_row.add_theme_constant_override("separation", AppTheme.GAP)
+	_prev_standard = AppTheme.button("<")
+	_next_standard = AppTheme.button(">")
+	for b in [_prev_standard, _next_standard]:
+		b.custom_minimum_size.x = AppTheme.TOUCH
+		b.visible = false
+	_prev_standard.pressed.connect(_switch_standard.bind(-1))
+	_next_standard.pressed.connect(_switch_standard.bind(1))
+	for c in [_prev_standard, _prompt, _next_standard]:
+		prompt_row.add_child(c)
+	for c in [_score, prompt_row, _symbol, hint, _status]:
 		vbox.add_child(c)
 	main.add_child(header)
 
@@ -144,6 +166,15 @@ func _pool() -> Array:
 
 func _new_chord(sound := true) -> void:
 	var pick: Array
+	_root_name = ""
+	if order == Order.JAZZ:
+		if _standard < 0:
+			_standard = randi() % Standards.ROSTER.size()
+			_standard_pos = 0
+		else:
+			_standard_pos = (_standard_pos + 1) % Standards.chords(_standard).size()
+		_show_standard_chord(sound)
+		return
 	if order == Order.RANDOM:
 		var pool := _pool()
 		if pool.size() > 1:
@@ -155,10 +186,29 @@ func _new_chord(sound := true) -> void:
 		pick = _queue.pop_back()
 	root = pick[0]
 	quality = pick[1]
+	_present_and_sound(sound)
+
+
+func _present_and_sound(sound: bool) -> void:
 	_present()
 	_demo_pending = true
 	if sound and is_visible_in_tree():
 		_play_demo()
+
+
+## Jumps to the first chord of the previous or next standard.
+func _switch_standard(step: int) -> void:
+	_standard = wrapi(_standard + step, 0, Standards.ROSTER.size())
+	_standard_pos = 0
+	_show_standard_chord(true)
+
+
+func _show_standard_chord(sound: bool) -> void:
+	var c: Dictionary = Standards.chords(_standard)[_standard_pos]
+	root = c.root
+	quality = c.quality
+	_root_name = c.name
+	_present_and_sound(sound)
 
 
 ## Moves on to a new random key and queues its chords in shuffled order.
@@ -190,10 +240,14 @@ func _present() -> void:
 	_keyboard.clear()
 	_keyboard.set_degree_labels(root)
 	_keyboard.center_on(Theory.chord_notes(root, quality))
-	_symbol.text = Theory.chord_symbol(root, quality)
+	_symbol.text = (_root_name if _root_name else Theory.chord_root_name(root, quality)) + quality
 	_prompt.text = "Play this chord"
 	if order == Order.DIATONIC:
 		_prompt.text += "  ·  Key of " + Theory.ROOTS[_key]
+	elif order == Order.JAZZ:
+		_prompt.text = Standards.ROSTER[_standard].name
+	_prev_standard.visible = order == Order.JAZZ
+	_next_standard.visible = order == Order.JAZZ
 	_notation.visible = false
 	_set_status("Tap or play the keys" if Midi.devices else "Tap the keys", AppTheme.TEXT)
 	_answer.text = "Show answer"
@@ -270,7 +324,7 @@ func _check() -> void:
 	best_streak = maxi(best_streak, streak)
 	_update_score()
 	_save()
-	var spelled := Theory.spell_degrees(root, Theory.chord_degrees(quality))
+	var spelled := Theory.spell_degrees(root, Theory.chord_degrees(quality), _root_name)
 	_set_status("Correct!  " + "  ".join(spelled), AppTheme.GOOD)
 	var notes := _selected.keys()
 	notes.sort()
@@ -296,7 +350,7 @@ func _on_answer_button() -> void:
 	_update_score()
 	var notes := Theory.chord_notes(root, quality)
 	var degrees := Theory.chord_degrees(quality)
-	var spelled := Theory.spell_degrees(root, degrees)
+	var spelled := Theory.spell_degrees(root, degrees, _root_name)
 	_keyboard.clear()
 	_keyboard.highlight([notes[0]], ["R"], AppTheme.ROOT, [spelled[0]])
 	_keyboard.highlight(notes.slice(1), degrees.slice(1), AppTheme.TONE, Array(spelled.slice(1)))
@@ -324,8 +378,7 @@ func _build_settings() -> void:
 	var box := _settings.content
 
 	box.add_child(AppTheme.label("Chord order", AppTheme.FONT_SMALL, AppTheme.TEXT_DIM))
-	var order_row := HBoxContainer.new()
-	order_row.add_theme_constant_override("separation", AppTheme.GAP)
+	var order_row := BottomSheet.toggle_grid(2)
 	for o in ORDER_NAMES.size():
 		var b := AppTheme.button(ORDER_NAMES[o], true)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -380,6 +433,7 @@ func _build_settings() -> void:
 func _on_order(o: int) -> void:
 	order = o as Order
 	_queue.clear()
+	_standard = -1
 	_sync_settings_ui()
 
 
@@ -423,8 +477,11 @@ func _sync_settings_ui() -> void:
 
 func _on_settings_closed() -> void:
 	_save()
-	var still_valid := keys.has(_key) if order == Order.DIATONIC \
-		else keys.has(root) and groups.has(Theory.CHORDS[quality].group)
+	var still_valid := true
+	if order == Order.DIATONIC:
+		still_valid = keys.has(_key)
+	elif order != Order.JAZZ:
+		still_valid = keys.has(root) and groups.has(Theory.CHORDS[quality].group)
 	if order != _order_at_open or not still_valid:
 		_new_chord()
 
